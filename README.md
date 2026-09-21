@@ -77,11 +77,17 @@ synchroniser Gradle, puis *Run*. En ligne de commande :
 
 ## Limites connues
 
-- Le mode audioClip dépend du modèle d'enceinte et de la version du firmware
-  Sonos. S'il est refusé, l'appli bascule automatiquement sur l'interruption /
-  reprise.
-- Le repli SOAP cible l'enceinte sélectionnée ; sur un groupe multi-pièces, il
-  vaut mieux viser le coordinateur du groupe (le mode audioClip, lui, marche
-  quelle que soit la configuration).
+- **Le vrai « par-dessus » (audioClip) n'existe que sur les enceintes récentes
+  (gamme S2 : One, Move, Roam, Beam, Arc, Five, Symfonisk…).** Les modèles de
+  1ʳᵉ génération comme les **Play:3 / Play:1 / Play:5 gen 1 ne peuvent pas**
+  jouer un son par-dessus la musique : c'est une limite matérielle Sonos,
+  aucune app ne peut la contourner. Sur ces enceintes, l'appli fait donc
+  **interruption → SFX → reprise**.
+- En mode interruption, si l'enceinte sélectionnée fait partie d'un **groupe
+  multi-pièces**, l'appli la **détache temporairement** du groupe : le SFX ne
+  joue que sur elle, les autres pièces continuent la musique, puis l'enceinte
+  **rejoint le groupe** automatiquement à la fin.
+- Le curseur « Volume SFX » n'agit qu'en mode audioClip ; en mode interruption,
+  le SFX sort au volume courant de l'enceinte.
 - Les fichiers audio très longs ne sont pas adaptés à un soundboard : privilégie
   des SFX courts.

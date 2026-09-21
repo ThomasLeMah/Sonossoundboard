@@ -22,6 +22,10 @@ class SoapClient(private val baseUrl: String) {
             "/MediaRenderer/RenderingControl/Control",
             "urn:schemas-upnp-org:service:RenderingControl:1"
         )
+        val ZONE_GROUP_TOPOLOGY = Service(
+            "/ZoneGroupTopology/Control",
+            "urn:schemas-upnp-org:service:ZoneGroupTopology:1"
+        )
     }
 
     /**

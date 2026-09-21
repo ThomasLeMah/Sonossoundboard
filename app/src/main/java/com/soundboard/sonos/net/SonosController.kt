@@ -64,39 +64,64 @@ object SonosController {
         }
     }
 
+    /**
+     * Plays the clip on the *selected* speaker only, briefly interrupting it, then resumes.
+     *
+     * If the speaker is part of a multi-room group, it is temporarily detached so the other
+     * rooms keep playing the music uninterrupted, then re-joined once the clip has finished.
+     */
     private suspend fun soapInterrupt(device: SonosDevice, clipUrl: String): Boolean {
         val soap = SoapClient(device.soapBaseUrl)
-        val instance = listOf("InstanceID" to "0")
+        val me = device.udn
 
-        // 1. Remember what is playing.
+        val myGroup = Topology.groupOf(Topology.groups(device.soapBaseUrl), me)
+        val others = myGroup?.memberUdns?.filter { it != me }.orEmpty()
+
+        return if (others.isEmpty()) {
+            // Standalone speaker: save its stream, play the clip, restore.
+            interruptStandalone(soap, clipUrl)
+        } else {
+            // Grouped speaker: detach, play only here, then rejoin the group.
+            interruptWithinGroup(soap, device, others)?.let { rejoin ->
+                val ok = playClipAndWait(soap, clipUrl)
+                soap.invoke(
+                    SoapClient.AV_TRANSPORT, "SetAVTransportURI",
+                    listOf("InstanceID" to "0", "CurrentURI" to "x-rincon:$rejoin", "CurrentURIMetaData" to "")
+                )
+                ok
+            } ?: interruptStandalone(soap, clipUrl)
+        }
+    }
+
+    /** Detaches this speaker from its group and returns the coordinator to rejoin afterwards. */
+    private suspend fun interruptWithinGroup(
+        soap: SoapClient,
+        device: SonosDevice,
+        others: List<String>
+    ): String? {
+        soap.invoke(
+            SoapClient.AV_TRANSPORT, "BecomeCoordinatorOfStandaloneGroup",
+            listOf("InstanceID" to "0")
+        ) ?: return null
+        delay(300)
+        // After detaching, find which coordinator now hosts the remaining members.
+        val after = Topology.groups(device.soapBaseUrl)
+        return Topology.groupOf(after, others.first())?.coordinatorUdn ?: others.first()
+    }
+
+    private suspend fun interruptStandalone(soap: SoapClient, clipUrl: String): Boolean {
+        val instance = listOf("InstanceID" to "0")
         val posInfo = soap.invoke(SoapClient.AV_TRANSPORT, "GetPositionInfo", instance)
         val savedUri = soap.extract(posInfo, "TrackURI")
         val savedMeta = soap.extract(posInfo, "TrackMetaData") ?: ""
         val savedTime = soap.extract(posInfo, "RelTime")
+        val savedState = soap.extract(
+            soap.invoke(SoapClient.AV_TRANSPORT, "GetTransportInfo", instance),
+            "CurrentTransportState"
+        )
 
-        val transInfo = soap.invoke(SoapClient.AV_TRANSPORT, "GetTransportInfo", instance)
-        val savedState = soap.extract(transInfo, "CurrentTransportState")
+        val ok = playClipAndWait(soap, clipUrl)
 
-        // 2. Play the clip.
-        val set = soap.invoke(
-            SoapClient.AV_TRANSPORT, "SetAVTransportURI",
-            listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to "")
-        ) ?: return false
-        soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
-            ?: return false
-
-        // 3. Wait for the clip to finish (bounded).
-        val maxWaitMs = 30_000L
-        val start = System.currentTimeMillis()
-        delay(400)
-        while (System.currentTimeMillis() - start < maxWaitMs) {
-            val ti = soap.invoke(SoapClient.AV_TRANSPORT, "GetTransportInfo", instance)
-            val state = soap.extract(ti, "CurrentTransportState")
-            if (state == null || state == "STOPPED" || state == "PAUSED_PLAYBACK") break
-            delay(500)
-        }
-
-        // 4. Restore the previous track and resume.
         if (!savedUri.isNullOrEmpty()) {
             soap.invoke(
                 SoapClient.AV_TRANSPORT, "SetAVTransportURI",
@@ -111,6 +136,29 @@ object SonosController {
             if (savedState == "PLAYING" || savedState == "TRANSITIONING") {
                 soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
             }
+        }
+        return ok
+    }
+
+    /** Sets the clip URI, plays it, and waits (bounded) for it to finish. */
+    private suspend fun playClipAndWait(soap: SoapClient, clipUrl: String): Boolean {
+        val instance = listOf("InstanceID" to "0")
+        val set = soap.invoke(
+            SoapClient.AV_TRANSPORT, "SetAVTransportURI",
+            listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to "")
+        ) ?: return false
+        soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1")) ?: return false
+
+        val maxWaitMs = 30_000L
+        val start = System.currentTimeMillis()
+        delay(400)
+        while (System.currentTimeMillis() - start < maxWaitMs) {
+            val state = soap.extract(
+                soap.invoke(SoapClient.AV_TRANSPORT, "GetTransportInfo", instance),
+                "CurrentTransportState"
+            )
+            if (state == null || state == "STOPPED" || state == "PAUSED_PLAYBACK") break
+            delay(500)
         }
         return set.isNotEmpty()
     }
