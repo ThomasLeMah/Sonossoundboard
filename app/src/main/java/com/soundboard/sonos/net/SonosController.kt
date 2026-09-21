@@ -124,6 +124,9 @@ object SonosController {
         if (detached == null) return interruptStandalone(soap, clipUrl)
         invalidateTopo(device.soapBaseUrl)
 
+        // The player needs a brief moment after leaving the group before it will accept
+        // transport commands as a fresh standalone coordinator.
+        delay(250)
         val ok = startClip(soap, clipUrl)
 
         // Work out which coordinator to rejoin. Fast path: if we were only a member, the
@@ -178,14 +181,24 @@ object SonosController {
         return ok
     }
 
-    /** Sets the clip URI and starts playback. Does not wait. */
-    private fun startClip(soap: SoapClient, clipUrl: String): Boolean {
-        val set = soap.invoke(
-            SoapClient.AV_TRANSPORT, "SetAVTransportURI",
-            listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to "")
-        ) ?: return false
-        soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1")) ?: return false
-        return set.isNotEmpty()
+    /**
+     * Sets the clip URI and starts playback. Does not wait for the clip to finish.
+     * Retries once, because a speaker can transiently reject the command right after a
+     * grouping change.
+     */
+    private suspend fun startClip(soap: SoapClient, clipUrl: String): Boolean {
+        repeat(2) { attempt ->
+            val set = soap.invoke(
+                SoapClient.AV_TRANSPORT, "SetAVTransportURI",
+                listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to "")
+            )
+            if (set != null) {
+                soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
+                return true
+            }
+            if (attempt == 0) delay(300)
+        }
+        return false
     }
 
     /** Waits (bounded) for the clip to finish so we can restore/rejoin cleanly. */
