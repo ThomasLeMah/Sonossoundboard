@@ -183,7 +183,7 @@ private fun VolumeRow(vm: SoundboardViewModel) {
         Text("Volume SFX", fontSize = 13.sp)
         Slider(
             value = vm.clipVolume.toFloat(),
-            onValueChange = { vm.setClipVolume(it.toInt()) },
+            onValueChange = { vm.updateClipVolume(it.toInt()) },
             valueRange = 0f..100f,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp)
         )

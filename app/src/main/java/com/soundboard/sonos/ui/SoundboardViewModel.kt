@@ -79,7 +79,7 @@ class SoundboardViewModel(app: Application) : AndroidViewModel(app) {
         selectedDevice = device
     }
 
-    fun setClipVolume(value: Int) {
+    fun updateClipVolume(value: Int) {
         clipVolume = value.coerceIn(0, 100)
     }
 
