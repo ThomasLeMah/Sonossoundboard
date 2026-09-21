@@ -117,7 +117,10 @@ class SoundboardViewModel(app: Application) : AndroidViewModel(app) {
             status = "Connexion Wi-Fi requise"
             return
         }
-        val clipUrl = "http://$ip:$serverPort/clip/${sound.id}"
+        // Sonos derives the media type from the URL's file extension, so it must be present
+        // (otherwise SetAVTransportURI fails with UPnP 714 "Illegal MIME-Type").
+        val ext = sound.fileName.substringAfterLast('.', "").ifEmpty { "mp3" }
+        val clipUrl = "http://$ip:$serverPort/clip/${sound.id}.$ext"
         playingIds.add(sound.id)
         viewModelScope.launch {
             val result = SonosController.play(device, clipUrl, clipVolume)

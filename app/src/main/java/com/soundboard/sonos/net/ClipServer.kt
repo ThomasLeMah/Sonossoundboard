@@ -22,7 +22,8 @@ class ClipServer(
         if (!uri.startsWith("/clip/")) {
             return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Not found")
         }
-        val id = uri.removePrefix("/clip/").substringBefore('?')
+        // URL is /clip/<id>.<ext>; the id itself (a UUID) has no dots, so strip the extension.
+        val id = uri.removePrefix("/clip/").substringBefore('?').substringBeforeLast('.')
         val file = resolve(id)
         if (file == null || !file.exists()) {
             return newFixedLengthResponse(Response.Status.NOT_FOUND, MIME_PLAINTEXT, "Unknown clip")
