@@ -29,6 +29,18 @@ object SonosController {
     private const val LOCAL_API_KEY = "123e4567-e89b-12d3-a456-426655440000"
     private const val APP_ID = "com.soundboard.sonos"
 
+    /** DIDL-Lite metadata some Sonos firmwares require to accept an HTTP clip URL. */
+    private const val CLIP_METADATA =
+        "<DIDL-Lite xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
+            "xmlns:upnp=\"urn:schemas-upnp-org:metadata-1-0/upnp/\" " +
+            "xmlns:r=\"urn:schemas-rinconnetworks-com:metadata-1-0/\" " +
+            "xmlns=\"urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/\">" +
+            "<item id=\"-1\" parentID=\"-1\" restricted=\"true\">" +
+            "<dc:title>Soundboard</dc:title>" +
+            "<upnp:class>object.item.audioItem.musicTrack</upnp:class>" +
+            "<desc id=\"cdudn\" nameSpace=\"urn:schemas-rinconnetworks-com:metadata-1-0/\">" +
+            "RINCON_AssociatedZPUDN</desc></item></DIDL-Lite>"
+
     enum class Method { AUDIO_CLIP, SOAP, NONE }
 
     data class Result(val success: Boolean, val method: Method, val message: String)
@@ -53,10 +65,11 @@ object SonosController {
                 }
                 noAudioClip.add(device.udn) // don't probe this speaker again this session
             }
-            if (soapInterrupt(device, clipUrl)) {
+            val soapError = soapInterrupt(device, clipUrl)
+            if (soapError == null) {
                 return@withContext Result(true, Method.SOAP, "Joué (interruption/reprise)")
             }
-            Result(false, Method.NONE, "Impossible de joindre l'enceinte")
+            Result(false, Method.NONE, "Échec $soapError · clip: $clipUrl")
         }
 
     /** Legacy models that cannot mix audio (no audioClip); skip the probe for these. */
@@ -104,7 +117,7 @@ object SonosController {
      * If the speaker is in a multi-room group it is temporarily detached so the other rooms
      * keep playing, then re-joined once the clip finishes.
      */
-    private suspend fun soapInterrupt(device: SonosDevice, clipUrl: String): Boolean {
+    private suspend fun soapInterrupt(device: SonosDevice, clipUrl: String): String? {
         val soap = SoapClient(device.soapBaseUrl)
         val me = device.udn
 
@@ -127,7 +140,7 @@ object SonosController {
         // The player needs a brief moment after leaving the group before it will accept
         // transport commands as a fresh standalone coordinator.
         delay(250)
-        val ok = startClip(soap, clipUrl)
+        val err = startClip(soap, clipUrl)
 
         // Work out which coordinator to rejoin. Fast path: if we were only a member, the
         // original coordinator still hosts the group — no extra query needed.
@@ -146,10 +159,10 @@ object SonosController {
             listOf("InstanceID" to "0", "CurrentURI" to "x-rincon:$rejoin", "CurrentURIMetaData" to "")
         )
         invalidateTopo(device.soapBaseUrl)
-        return ok
+        return err
     }
 
-    private suspend fun interruptStandalone(soap: SoapClient, clipUrl: String): Boolean {
+    private suspend fun interruptStandalone(soap: SoapClient, clipUrl: String): String? {
         val instance = listOf("InstanceID" to "0")
         val posInfo = soap.invoke(SoapClient.AV_TRANSPORT, "GetPositionInfo", instance)
         val savedUri = soap.extract(posInfo, "TrackURI")
@@ -160,7 +173,7 @@ object SonosController {
             "CurrentTransportState"
         )
 
-        val ok = startClip(soap, clipUrl)
+        val err = startClip(soap, clipUrl)
         waitForClipEnd(soap)
 
         if (!savedUri.isNullOrEmpty()) {
@@ -178,27 +191,29 @@ object SonosController {
                 soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
             }
         }
-        return ok
+        return err
     }
 
     /**
      * Sets the clip URI and starts playback. Does not wait for the clip to finish.
-     * Retries once, because a speaker can transiently reject the command right after a
-     * grouping change.
+     * Returns null on success, or a short failure reason. Retries once, because a speaker
+     * can transiently reject the command right after a grouping change.
      */
-    private suspend fun startClip(soap: SoapClient, clipUrl: String): Boolean {
+    private suspend fun startClip(soap: SoapClient, clipUrl: String): String? {
+        var last: String? = null
         repeat(2) { attempt ->
-            val set = soap.invoke(
+            val set = soap.call(
                 SoapClient.AV_TRANSPORT, "SetAVTransportURI",
-                listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to "")
+                listOf("InstanceID" to "0", "CurrentURI" to clipUrl, "CurrentURIMetaData" to CLIP_METADATA)
             )
-            if (set != null) {
-                soap.invoke(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
-                return true
+            if (set.ok) {
+                val play = soap.call(SoapClient.AV_TRANSPORT, "Play", listOf("InstanceID" to "0", "Speed" to "1"))
+                return play.reason("Play") // null on success
             }
+            last = set.reason("SetAVTransportURI")
             if (attempt == 0) delay(300)
         }
-        return false
+        return last ?: "SetAVTransportURI a échoué"
     }
 
     /** Waits (bounded) for the clip to finish so we can restore/rejoin cleanly. */

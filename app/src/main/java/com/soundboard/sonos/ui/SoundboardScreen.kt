@@ -64,7 +64,12 @@ fun SoundboardScreen(vm: SoundboardViewModel = viewModel()) {
 
     LaunchedEffect(vm.status) {
         vm.status?.let {
-            snackbar.showSnackbar(it)
+            val duration = if (it.startsWith("Échec")) {
+                androidx.compose.material3.SnackbarDuration.Long
+            } else {
+                androidx.compose.material3.SnackbarDuration.Short
+            }
+            snackbar.showSnackbar(message = it, withDismissAction = it.startsWith("Échec"), duration = duration)
             vm.status = null
         }
     }

@@ -28,11 +28,33 @@ class SoapClient(private val baseUrl: String) {
         )
     }
 
+    /** Outcome of a SOAP call: [ok] plus enough detail to explain a failure. */
+    data class Reply(val ok: Boolean, val httpCode: Int, val body: String?, val error: String?) {
+        /** Short, human-readable failure reason, or null on success. */
+        fun reason(action: String): String? {
+            if (ok) return null
+            if (error != null) return "$action: $error"
+            val upnp = body?.let { extractUpnp(it, "errorCode") }
+            return if (upnp != null) "$action: HTTP $httpCode / UPnP $upnp" else "$action: HTTP $httpCode"
+        }
+
+        private fun extractUpnp(xml: String, tag: String): String? {
+            val open = "<$tag>"; val close = "</$tag>"
+            val s = xml.indexOf(open); if (s < 0) return null
+            val e = xml.indexOf(close, s + open.length); if (e < 0) return null
+            return xml.substring(s + open.length, e).trim()
+        }
+    }
+
     /**
      * Invokes a SOAP [action] on [service] with the given [args] (in order).
      * Returns the raw response body, or null on any HTTP/network failure.
      */
-    fun invoke(service: Service, action: String, args: List<Pair<String, String>>): String? {
+    fun invoke(service: Service, action: String, args: List<Pair<String, String>>): String? =
+        call(service, action, args).let { if (it.ok) it.body else null }
+
+    /** Like [invoke], but returns the full [Reply] so callers can report failures. */
+    fun call(service: Service, action: String, args: List<Pair<String, String>>): Reply {
         val argXml = args.joinToString("") { (k, v) -> "<$k>${escape(v)}</$k>" }
         val envelope = """<?xml version="1.0" encoding="utf-8"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" s:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">
@@ -47,10 +69,10 @@ class SoapClient(private val baseUrl: String) {
                 .build()
             Http.client.newCall(request).execute().use { resp ->
                 val body = resp.body?.string()
-                if (resp.isSuccessful) body else null
+                Reply(resp.isSuccessful, resp.code, body, null)
             }
         } catch (e: Exception) {
-            null
+            Reply(false, 0, null, e.javaClass.simpleName + (e.message?.let { ": $it" } ?: ""))
         }
     }
 
