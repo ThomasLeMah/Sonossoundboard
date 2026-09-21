@@ -21,9 +21,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
+      # The ubuntu-latest runner ships the Android SDK (platforms, build-tools,
+      # accepted licenses) with ANDROID_SDK_ROOT set, so the Android Gradle
+      # Plugin uses it directly — no separate SDK-setup action needed.
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
