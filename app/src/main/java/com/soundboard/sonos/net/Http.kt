@@ -34,9 +34,11 @@ object Http {
             init(null, arrayOf(trustAll), SecureRandom())
         }
         OkHttpClient.Builder()
-            .connectTimeout(4, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
-            .writeTimeout(6, TimeUnit.SECONDS)
+            // Kept short: a speaker that supports audioClip answers in well under a second on
+            // the LAN, so a slow response means "unsupported" and we fall back fast.
+            .connectTimeout(900, TimeUnit.MILLISECONDS)
+            .readTimeout(1200, TimeUnit.MILLISECONDS)
+            .writeTimeout(1200, TimeUnit.MILLISECONDS)
             .sslSocketFactory(sslContext.socketFactory, trustAll)
             .hostnameVerifier { _, _ -> true }
             .build()
