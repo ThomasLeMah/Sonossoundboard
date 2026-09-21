@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sonos control uses cleartext HTTP on the local network (SOAP on port 1400)
+  and the app runs its own HTTP server to serve sound clips to the speakers.
+  Cleartext is therefore required for LAN traffic. No traffic leaves the LAN.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

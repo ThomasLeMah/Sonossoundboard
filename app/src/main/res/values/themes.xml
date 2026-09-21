@@ -1,0 +1,7 @@
+<resources>
+    <!-- Base theme; colors are driven by Compose Material3 dynamic/dark theme at runtime. -->
+    <style name="Theme.SonosSoundboard" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#111318</item>
+        <item name="android:windowBackground">#111318</item>
+    </style>
+</resources>
